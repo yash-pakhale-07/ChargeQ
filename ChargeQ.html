@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>ChargeQ — Pune EV ChargeMap & Live Availability</title>
+  <meta name="description" content="Real-time EV charging stations map and availability dashboard across Pune, Maharashtra. Built with Leaflet GIS, Node.js, Express, and MongoDB.">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&family=JetBrains+Mono:wght@500;700&display=swap">
+
+  <!-- Leaflet GIS CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+
+  <!-- Application Stylesheet -->
+  <link rel="stylesheet" href="frontend/css/style.css">
+</head>
+<body>
+  <div class="app" id="app" data-view="list">
+    <!-- Top App Navigation -->
+    <header>
+      <div class="top">
+        <div class="brand">
+          <div class="logo" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M13.2 2 5 13.4h5.4L9.4 22 19 9.9h-5.5L13.2 2Z"/></svg>
+          </div>
+          <div>
+            ChargeQ
+            <small>Pune · Live EV ChargeMap & Hubs</small>
+          </div>
+        </div>
+
+        <div class="header-actions">
+          <button class="btn sm primary" data-act="addStation" title="Add a new charging station as owner/operator">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            Add Station
+          </button>
+          <button class="veh" id="vehChip" data-act="veh" aria-label="Change your car model and battery level"></button>
+        </div>
+      </div>
+
+      <!-- KPI Dashboard Metrics Strip -->
+      <section class="kpi-bar" aria-label="Charging network statistics">
+        <div class="kpi-card">
+          <div class="kpi-icon blue">⚡</div>
+          <div class="kpi-info">
+            <span class="kpi-val mono" id="kpiTotal">0</span>
+            <span class="kpi-lbl">Total Stations</span>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon green">🔌</div>
+          <div class="kpi-info">
+            <span class="kpi-val mono" id="kpiAvailable">0</span>
+            <span class="kpi-lbl">Available Chargers</span>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon purple">🚀</div>
+          <div class="kpi-info">
+            <span class="kpi-val mono" id="kpiFast">0</span>
+            <span class="kpi-lbl">Fast (≥50 kW)</span>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon amber">⏳</div>
+          <div class="kpi-info">
+            <span class="kpi-val mono" id="kpiOccupied">0</span>
+            <span class="kpi-lbl">Occupied / Busy</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- View Bar for Mobile Tabs -->
+      <div class="viewbar">
+        <div class="tabs" role="group" aria-label="View toggle">
+          <button data-act="view" data-v="list" aria-pressed="true">Stations List</button>
+          <button data-act="view" data-v="map" aria-pressed="false">GIS Map</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Active User Simulation Banner -->
+    <div id="activity" aria-live="polite"></div>
+
+    <!-- Main Workspace: List Pane on Left, Leaflet GIS Map on Right -->
+    <main class="main">
+      <!-- Left Station List Pane -->
+      <section class="listpane" aria-label="Charging stations list">
+        <div class="controls">
+          <div class="search-box">
+            <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input class="search-input" id="q" type="search" placeholder="Search Hinjawadi, Baner, Kothrud, Viman Nagar..." autocomplete="off">
+          </div>
+
+          <div class="filter-row">
+            <button class="chip" data-act="tog" data-k="fit" aria-pressed="true">Fits my car</button>
+            <button class="chip" data-act="tog" data-k="free" aria-pressed="false">Free now</button>
+
+            <label class="sel">
+              <span class="sr">Connector Type</span>
+              <select id="selConnector">
+                <option value="all">All Connectors</option>
+                <option value="CCS2">CCS2</option>
+                <option value="Type 2">Type 2</option>
+                <option value="CHAdeMO">CHAdeMO</option>
+                <option value="GB/T">GB/T</option>
+              </select>
+            </label>
+
+            <label class="sel">
+              <span class="sr">Minimum Power</span>
+              <select id="pw">
+                <option value="0">Any Power</option>
+                <option value="22">22 kW and up</option>
+                <option value="50">50 kW and up</option>
+                <option value="120">120 kW and up</option>
+              </select>
+            </label>
+
+            <label class="sel">
+              <span class="sr">Status</span>
+              <select id="selStatus">
+                <option value="all">All Statuses</option>
+                <option value="Operational">Operational</option>
+                <option value="Maintenance">Maintenance</option>
+                <option value="Offline">Offline</option>
+              </select>
+            </label>
+
+            <label class="sel">
+              <span class="sr">Sort By</span>
+              <select id="sort">
+                <option value="near">Nearest to Me</option>
+                <option value="price">Lowest Price</option>
+                <option value="power">Highest Power</option>
+                <option value="name">Station Name</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="meta-bar">
+            <span id="count" class="mono">Loading stations...</span>
+            <span class="meta-legend">
+              <span><i style="background:var(--good)"></i> Free</span>
+              <span><i style="background:var(--ink-2)"></i> In use</span>
+              <span><i style="background:var(--off)"></i> Off</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Dynamic Station Cards Container -->
+        <div id="cards" class="cards"></div>
+
+        <p class="foot">
+          Backed by MongoDB & Express REST API.
+          <button style="background:none;border:none;color:var(--accent);cursor:pointer;font-weight:600;text-decoration:underline" data-act="seedData">Reset Demo Stations</button>
+        </p>
+      </section>
+
+      <!-- Right Leaflet OpenStreetMap GIS Pane -->
+      <section class="mappane" aria-label="Interactive GIS Map">
+        <div id="leaflet-map"></div>
+
+        <!-- Interactive Coordinate Picker Notification -->
+        <div id="mapPickerBanner" class="map-location-picker-banner" hidden>
+          <span>📍 Click anywhere on the map to set station coordinates</span>
+        </div>
+
+        <!-- Map Navigation Tools -->
+        <div class="map-tools">
+          <button class="map-tool-btn" data-act="locateMe" title="Locate my position (GPS)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="7"></circle><line x1="12" y1="1" x2="12" y2="5"></line><line x1="12" y1="19" x2="12" y2="23"></line><line x1="1" y1="12" x2="5" y2="12"></line><line x1="19" y1="12" x2="23" y2="12"></line></svg>
+          </button>
+          <button class="map-tool-btn" data-act="pickUserLocation" title="Set my location on map">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+          </button>
+          <button class="map-tool-btn" data-act="recenterPune" title="Fit all Pune stations">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 19 21 12 17 5 21 12 2"></polygon></svg>
+          </button>
+        </div>
+
+        <!-- Map Legend -->
+        <div class="legend-map">
+          <span class="lg"><i style="background:var(--pin-good)"></i> Available</span>
+          <span class="lg"><i style="background:var(--pin-warn)"></i> Low / Wait</span>
+          <span class="lg"><i style="background:var(--pin-bad)"></i> Full</span>
+          <span class="lg"><i style="background:var(--pin-off)"></i> Maint / Off</span>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Station Detail Drawer -->
+  <aside id="detail" class="detail" hidden style="display:none" aria-label="Station details drawer"></aside>
+
+  <!-- Add / Edit Charging Station Modal -->
+  <div id="stationModal" class="modal" hidden style="display:none">
+    <div class="sheet sheet-lg" role="dialog" aria-modal="true" aria-labelledby="stationModalTitle">
+      <div class="sheet-head">
+        <h2 id="stationModalTitle">Add New Charging Station</h2>
+        <button class="icon-btn" id="btnCloseModal" aria-label="Close dialog">
+          <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+
+      <div id="stationFormAlert" class="form-alert"></div>
+
+      <form id="stationForm" class="form-grid">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="stName">Station Name *</label>
+            <input class="form-control" id="stName" type="text" placeholder="e.g. VoltHub Hinjewadi Phase 1" required>
+          </div>
+          <div class="form-group">
+            <label for="stArea">Area / Locality * <small>(e.g. Hinjawadi, Baner)</small></label>
+            <input class="form-control" id="stArea" type="text" placeholder="e.g. Hinjawadi" required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="stAddress">Full Address *</label>
+          <input class="form-control" id="stAddress" type="text" placeholder="e.g. Plot 28, Rajiv Gandhi Infotech Park, Hinjawadi, Pune 411057" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="stLat">Latitude *</label>
+            <input class="form-control mono" id="stLat" type="number" step="0.00001" placeholder="18.5913" required>
+          </div>
+          <div class="form-group">
+            <label for="stLng">Longitude *</label>
+            <div class="input-with-action">
+              <input class="form-control mono" id="stLng" type="number" step="0.00001" placeholder="73.7389" required>
+              <button type="button" class="btn sm" data-act="pickLocation" title="Pick location directly on Pune map">
+                📍 Pick on Map
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Supported Connector Types *</label>
+          <div class="checkbox-group">
+            <label class="checkbox-label"><input type="checkbox" name="connectorType" value="CCS2" checked> CCS2</label>
+            <label class="checkbox-label"><input type="checkbox" name="connectorType" value="Type 2" checked> Type 2</label>
+            <label class="checkbox-label"><input type="checkbox" name="connectorType" value="CHAdeMO"> CHAdeMO</label>
+            <label class="checkbox-label"><input type="checkbox" name="connectorType" value="GB/T"> GB/T</label>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="stSpeed">Max Charging Speed (kW) *</label>
+            <input class="form-control mono" id="stSpeed" type="number" min="1" max="500" value="120" required>
+          </div>
+          <div class="form-group">
+            <label for="stPrice">Price per kWh (₹) *</label>
+            <input class="form-control mono" id="stPrice" type="number" step="0.1" min="0" value="19.0" required>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="stTotal">Total Chargers *</label>
+            <input class="form-control mono" id="stTotal" type="number" min="1" max="30" value="4" required>
+          </div>
+          <div class="form-group">
+            <label for="stAvail">Available Chargers *</label>
+            <input class="form-control mono" id="stAvail" type="number" min="0" max="30" value="3" required>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="stStatus">Operational Status</label>
+            <select class="form-control" id="stStatus">
+              <option value="Operational">Operational</option>
+              <option value="Maintenance">Under Maintenance</option>
+              <option value="Offline">Offline</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="stAmenities">Amenities <small>(comma-separated)</small></label>
+            <input class="form-control" id="stAmenities" type="text" placeholder="Café, Restroom, Covered bays, Wi-Fi">
+          </div>
+        </div>
+
+        <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:10px;">
+          <button type="button" class="btn" id="btnCancelStation">Cancel</button>
+          <button type="submit" class="btn primary" id="btnSaveStation">Save Station to Database</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Delete Confirmation Modal -->
+  <div id="deleteModal" class="modal" hidden style="display:none">
+    <div class="sheet" role="dialog" aria-modal="true">
+      <h2>Delete Charging Station</h2>
+      <p class="note">Are you sure you want to permanently delete <b id="deleteStationName"></b> from the MongoDB database? This action cannot be undone.</p>
+      <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:12px;">
+        <button class="btn" id="btnCancelDelete">Cancel</button>
+        <button class="btn danger" id="btnConfirmDelete">Delete Station</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Vehicle Selection Modal -->
+  <div id="vehModal" class="modal" hidden style="display:none">
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="vmT">
+      <div class="sheet-head">
+        <h2 id="vmT">Select Your EV & Battery Level</h2>
+        <button class="icon-btn" data-act="vehDismiss" aria-label="Close dialog">
+          <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+
+      <div class="form-group">
+        <label for="selVeh">Car Model *</label>
+        <select class="form-control" id="selVeh" style="margin-top:6px">
+          <option value="" disabled selected>Select your EV</option>
+        </select>
+        <div id="vehError" class="form-error" style="display:none; margin-top:4px;">Please select an EV model from the list.</div>
+      </div>
+
+      <!-- Vehicle Specifications Card -->
+      <div class="veh-specs-box" id="vehSpecsBox">
+        <div class="veh-specs-grid">
+          <div class="veh-spec-item">
+            <span>Battery Pack</span>
+            <b id="specBattery">-- kWh</b>
+          </div>
+          <div class="veh-spec-item">
+            <span>Max DC Speed</span>
+            <b id="specDc">-- kW</b>
+          </div>
+          <div class="veh-spec-item">
+            <span>AC Charging</span>
+            <b id="specAc">-- kW</b>
+          </div>
+          <div class="veh-spec-item">
+            <span>Connectors</span>
+            <b id="specConn">--</b>
+          </div>
+        </div>
+      </div>
+
+      <!-- Battery Percentage Slider -->
+      <div class="rng">
+        <label for="rngPct">
+          <span>Battery Charge Level</span>
+          <span class="mono" id="vPctM" style="color:var(--accent); font-weight:700">22%</span>
+        </label>
+        <input id="rngPct" type="range" min="5" max="100" step="1" value="22">
+      </div>
+
+      <!-- Real-Time Range Calculation Card -->
+      <div class="veh-range-card" id="vehRangeCard">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:12px; color:var(--ink-2)">Estimated Range:</span>
+          <span class="mono" style="font-size:15px; font-weight:700; color:var(--good)"><b id="vEstimatedRange">~72 km</b> <small style="font-size:11.5px; font-weight:normal; color:var(--ink-2)">(Full: <span id="vFullRange">325 km</span>)</small></span>
+        </div>
+      </div>
+
+      <p class="note" id="vInfo" style="font-size:12px; line-height:1.4"></p>
+
+      <button class="btn primary block" id="btnSaveVeh" data-act="vehClose">Save & Apply Vehicle</button>
+    </div>
+  </div>
+
+  <!-- Toast Notifications Container -->
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <!-- Leaflet GIS JavaScript -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+  <!-- Application Modules -->
+  <script src="frontend/js/api.js"></script>
+  <script src="frontend/js/map.js"></script>
+  <script src="frontend/js/app.js"></script>
+</body>
+</html>

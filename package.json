@@ -1,0 +1,30 @@
+{
+  "name": "pune-ev-chargemap",
+  "version": "1.0.0",
+  "description": "Full-stack Pune EV ChargeMap platform with Leaflet GIS integration and MongoDB persistence",
+  "main": "backend/server.js",
+  "scripts": {
+    "start": "node backend/server.js",
+    "server": "node backend/server.js",
+    "seed": "node backend/seed/seed.js",
+    "dev": "node --watch backend/server.js"
+  },
+  "keywords": [
+    "ev",
+    "chargemap",
+    "pune",
+    "gis",
+    "leaflet",
+    "mongodb",
+    "express"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mongoose": "^8.9.5",
+    "morgan": "^1.10.0"
+  }
+}
