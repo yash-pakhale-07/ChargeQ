@@ -524,6 +524,30 @@ header {
   to { transform: translateX(-50%) translateY(-4px); }
 }
 
+.picker-cancel-btn {
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--accent-ink);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--radius-full);
+  padding: 4px 12px;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--dur-fast) ease;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.picker-cancel-btn:hover {
+  background: rgba(0, 0, 0, 0.38);
+  border-color: rgba(255, 255, 255, 0.5);
+  transform: translateY(-1px);
+}
+
+.picker-cancel-btn:active {
+  transform: translateY(0);
+}
+
 .map-tools {
   position: absolute;
   top: 14px;
