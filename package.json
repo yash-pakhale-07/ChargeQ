@@ -4,6 +4,7 @@
   "description": "Full-stack Pune EV ChargeMap platform with Leaflet GIS integration and MongoDB persistence",
   "main": "backend/server.js",
   "scripts": {
+    "build": "node -e \"console.log('No build step required')\"",
     "start": "node backend/server.js",
     "server": "node backend/server.js",
     "seed": "node backend/seed/seed.js",

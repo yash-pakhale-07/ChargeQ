@@ -374,6 +374,7 @@
     deletingId: null,
     user: null, // active simulation session (queue, held, charging, booked)
     isUsingFallback: false,
+    isPickingStationLocation: false,
   };
 
   let chargeMapInstance = null;
@@ -1051,8 +1052,10 @@
       modal.style.display = 'none';
     }
     state.editingId = null;
+    state.isPickingStationLocation = false;
     if (chargeMapInstance) {
-      chargeMapInstance.stopLocationPicker();
+      chargeMapInstance.stopLocationPicker(true);
+      chargeMapInstance.clearPickerMarker();
     }
   }
 
@@ -1389,32 +1392,69 @@
       openStationModal(null);
     },
     pickLocation() {
+      const modal = $('#stationModal');
       const curLat = parseFloat($('#stLat').value) || 18.5204;
       const curLng = parseFloat($('#stLng').value) || 73.8567;
 
+      // 1. Temporarily hide modal so it no longer blocks Leaflet GIS map interaction
+      if (modal) {
+        modal.hidden = true;
+        modal.style.display = 'none';
+      }
+      state.isPickingStationLocation = true;
+
+      // Switch to map view on small screens
       if (window.innerWidth < 920) {
         ACT.view({ dataset: { v: 'map' } });
       }
 
       showToast('Click anywhere on the Pune map to set station coordinates', 'info');
-      chargeMapInstance.startLocationPicker(curLat, curLng, (lat, lng) => {
-        $('#stLat').value = lat;
-        $('#stLng').value = lng;
-        showToast(`Selected coordinates: ${lat}, ${lng}`, 'success');
-      });
+
+      // 2 & 3. Start coordinate picker on Leaflet GIS map
+      chargeMapInstance.startLocationPicker(
+        curLat,
+        curLng,
+        (lat, lng) => {
+          state.isPickingStationLocation = false;
+          // 4. Automatically populate latitude and longitude fields
+          $('#stLat').value = lat;
+          $('#stLng').value = lng;
+
+          // 5. Exit map-picking mode and reopen modal with all form values preserved
+          if (modal) {
+            modal.hidden = false;
+            modal.style.display = 'grid';
+          }
+          showToast(`Selected coordinates: ${lat}, ${lng}`, 'success');
+        },
+        () => {
+          state.isPickingStationLocation = false;
+          // 6. Cancellation: Reopen modal with all form values preserved
+          if (modal) {
+            modal.hidden = false;
+            modal.style.display = 'grid';
+          }
+          showToast('Location selection cancelled', 'info');
+        }
+      );
     },
     pickUserLocation() {
       if (window.innerWidth < 920) {
         ACT.view({ dataset: { v: 'map' } });
       }
       showToast('Click on the map to set your location pin', 'info');
-      chargeMapInstance.startUserLocationPicker((lat, lng) => {
-        state.userLocation = { lat, lng, label: 'Your Custom Pin' };
-        showToast(`Updated location to (${lat}, ${lng})`, 'success');
-        recalculateStationDistances();
-        renderList();
-        renderKPIs();
-      });
+      chargeMapInstance.startUserLocationPicker(
+        (lat, lng) => {
+          state.userLocation = { lat, lng, label: 'Your Custom Pin' };
+          showToast(`Updated location to (${lat}, ${lng})`, 'success');
+          recalculateStationDistances();
+          renderList();
+          renderKPIs();
+        },
+        () => {
+          showToast('Location selection cancelled', 'info');
+        }
+      );
     },
     join() {
       const st = currentStation();
@@ -1710,10 +1750,19 @@
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-      if (!$('#stationModal').hidden) closeStationModal();
-      else if (!$('#deleteModal').hidden) closeDeleteModal();
-      else if (!$('#vehModal').hidden) ACT.vehDismiss();
-      else if (state.sel) ACT.close();
+      if (state.isPickingStationLocation && chargeMapInstance) {
+        chargeMapInstance.cancelLocationPicker();
+      } else if (chargeMapInstance && chargeMapInstance.isPickingUserLocation) {
+        chargeMapInstance.cancelUserLocationPicker();
+      } else if (!$('#stationModal').hidden) {
+        closeStationModal();
+      } else if (!$('#deleteModal').hidden) {
+        closeDeleteModal();
+      } else if (!$('#vehModal').hidden) {
+        ACT.vehDismiss();
+      } else if (state.sel) {
+        ACT.close();
+      }
     }
   });
 
@@ -1795,6 +1844,19 @@
   $('#stationForm').addEventListener('submit', handleStationFormSubmit);
   $('#btnCloseModal').addEventListener('click', closeStationModal);
   $('#btnCancelStation').addEventListener('click', closeStationModal);
+
+  const btnCancelMapPicker = $('#btnCancelMapPicker');
+  if (btnCancelMapPicker) {
+    btnCancelMapPicker.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (state.isPickingStationLocation && chargeMapInstance) {
+        chargeMapInstance.cancelLocationPicker();
+      } else if (chargeMapInstance && chargeMapInstance.isPickingUserLocation) {
+        chargeMapInstance.cancelUserLocationPicker();
+      }
+    });
+  }
 
   $('#btnCancelDelete').addEventListener('click', closeDeleteModal);
   $('#btnConfirmDelete').addEventListener('click', handleConfirmDelete);

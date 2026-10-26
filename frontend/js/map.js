@@ -52,19 +52,6 @@ class ChargeMap {
 
     this.markersGroup = L.layerGroup().addTo(this.map);
 
-    // Setup map click event for interactive coordinate selection
-    this.map.on('click', (e) => {
-      const { lat, lng } = e.latlng;
-      if (this.isPickingLocation && this.onLocationPicked) {
-        this.setPickerLocation(lat, lng);
-        this.onLocationPicked(Number(lat.toFixed(5)), Number(lng.toFixed(5)));
-      } else if (this.isPickingUserLocation && this.onUserLocationPicked) {
-        this.setUserLocation(lat, lng, 'You (Custom Location)');
-        this.onUserLocationPicked(Number(lat.toFixed(5)), Number(lng.toFixed(5)));
-        this.stopUserLocationPicker();
-      }
-    });
-
     // Default Pune User Marker
     this.setUserLocation(this.defaultCenter[0], this.defaultCenter[1], 'Pune Center (Default)');
 
@@ -170,7 +157,14 @@ class ChargeMap {
 
       marker.bindPopup(popupContent, { offset: [0, -18] });
 
-      marker.on('click', () => {
+      marker.on('click', (e) => {
+        if (this.isPickingLocation && this._mapPickerClickHandler) {
+          this._mapPickerClickHandler({ latlng: { lat: st.latitude, lng: st.longitude } });
+          if (e && e.originalEvent) {
+            e.originalEvent.stopPropagation();
+          }
+          return;
+        }
         if (this.onStationSelected) {
           this.onStationSelected(st._id || st.id);
         }
@@ -216,29 +210,78 @@ class ChargeMap {
   /**
    * Enable interactive map click mode for selecting station coordinates
    */
-  startLocationPicker(initialLat, initialLng, callback) {
+  startLocationPicker(initialLat, initialLng, callback, onCancel = null) {
     this.isPickingLocation = true;
     this.onLocationPicked = callback;
+    this.onLocationPickerCancel = onCancel;
+
+    if (this.map && this.map.getContainer()) {
+      this.map.getContainer().style.cursor = 'crosshair';
+    }
 
     const banner = document.getElementById('mapPickerBanner');
     if (banner) {
-      banner.textContent = '📍 Click anywhere on the map to set station coordinates';
+      const bannerText = document.getElementById('mapPickerBannerText');
+      if (bannerText) {
+        bannerText.textContent = '📍 Click anywhere on the Pune map to set station coordinates';
+      } else {
+        banner.textContent = '📍 Click anywhere on the Pune map to set station coordinates';
+      }
       banner.hidden = false;
       banner.style.display = 'flex';
+      if (window.L && L.DomEvent) {
+        L.DomEvent.disableClickPropagation(banner);
+      }
     }
 
     if (initialLat && initialLng) {
       this.setPickerLocation(initialLat, initialLng);
       this.map.panTo([initialLat, initialLng]);
     }
+
+    // Remove any previous temporary listener
+    if (this._mapPickerClickHandler && this.map) {
+      this.map.off('click', this._mapPickerClickHandler);
+      this._mapPickerClickHandler = null;
+    }
+
+    // Attach temporary map click listener
+    this._mapPickerClickHandler = (e) => {
+      const { lat, lng } = e.latlng;
+      const formattedLat = Number(lat.toFixed(5));
+      const formattedLng = Number(lng.toFixed(5));
+      this.setPickerLocation(formattedLat, formattedLng);
+      const cb = this.onLocationPicked;
+      this.stopLocationPicker(false);
+      if (cb) {
+        cb(formattedLat, formattedLng);
+      }
+    };
+
+    this.map.on('click', this._mapPickerClickHandler);
+
+    setTimeout(() => {
+      if (this.map) this.map.invalidateSize();
+    }, 50);
   }
 
   /**
    * Disable interactive map click mode for station
    */
-  stopLocationPicker() {
+  stopLocationPicker(removeMarker = true) {
+    // Remove temporary map event listener
+    if (this._mapPickerClickHandler && this.map) {
+      this.map.off('click', this._mapPickerClickHandler);
+      this._mapPickerClickHandler = null;
+    }
+
     this.isPickingLocation = false;
     this.onLocationPicked = null;
+    this.onLocationPickerCancel = null;
+
+    if (this.map && this.map.getContainer()) {
+      this.map.getContainer().style.cursor = '';
+    }
 
     const banner = document.getElementById('mapPickerBanner');
     if (banner) {
@@ -246,7 +289,32 @@ class ChargeMap {
       banner.style.display = 'none';
     }
 
-    if (this.pickerMarker) {
+    if (removeMarker && this.pickerMarker && this.map) {
+      this.map.removeLayer(this.pickerMarker);
+      this.pickerMarker = null;
+    }
+
+    if (this.map) {
+      this.map.invalidateSize();
+    }
+  }
+
+  /**
+   * Cancel location picking
+   */
+  cancelLocationPicker() {
+    const cancelCb = this.onLocationPickerCancel;
+    this.stopLocationPicker(true);
+    if (cancelCb) {
+      cancelCb();
+    }
+  }
+
+  /**
+   * Clear any placed picker marker
+   */
+  clearPickerMarker() {
+    if (this.pickerMarker && this.map) {
       this.map.removeLayer(this.pickerMarker);
       this.pickerMarker = null;
     }
@@ -255,26 +323,85 @@ class ChargeMap {
   /**
    * Enable manual user location picker on map
    */
-  startUserLocationPicker(callback) {
+  startUserLocationPicker(callback, onCancel = null) {
+    this.stopLocationPicker(true);
     this.isPickingUserLocation = true;
     this.onUserLocationPicked = callback;
+    this.onUserLocationPickerCancel = onCancel;
+
+    if (this.map && this.map.getContainer()) {
+      this.map.getContainer().style.cursor = 'crosshair';
+    }
 
     const banner = document.getElementById('mapPickerBanner');
     if (banner) {
-      banner.textContent = '📍 Click anywhere on Pune map to set your location';
+      const bannerText = document.getElementById('mapPickerBannerText');
+      if (bannerText) {
+        bannerText.textContent = '📍 Click anywhere on Pune map to set your location';
+      } else {
+        banner.textContent = '📍 Click anywhere on Pune map to set your location';
+      }
       banner.hidden = false;
       banner.style.display = 'flex';
+      if (window.L && L.DomEvent) {
+        L.DomEvent.disableClickPropagation(banner);
+      }
     }
+
+    if (this._userPickerClickHandler && this.map) {
+      this.map.off('click', this._userPickerClickHandler);
+      this._userPickerClickHandler = null;
+    }
+
+    this._userPickerClickHandler = (e) => {
+      const { lat, lng } = e.latlng;
+      const formattedLat = Number(lat.toFixed(5));
+      const formattedLng = Number(lng.toFixed(5));
+      this.setUserLocation(formattedLat, formattedLng, 'You (Custom Location)');
+      const cb = this.onUserLocationPicked;
+      this.stopUserLocationPicker();
+      if (cb) {
+        cb(formattedLat, formattedLng);
+      }
+    };
+
+    this.map.on('click', this._userPickerClickHandler);
+
+    setTimeout(() => {
+      if (this.map) this.map.invalidateSize();
+    }, 50);
   }
 
   stopUserLocationPicker() {
+    if (this._userPickerClickHandler && this.map) {
+      this.map.off('click', this._userPickerClickHandler);
+      this._userPickerClickHandler = null;
+    }
+
     this.isPickingUserLocation = false;
     this.onUserLocationPicked = null;
+    this.onUserLocationPickerCancel = null;
+
+    if (this.map && this.map.getContainer()) {
+      this.map.getContainer().style.cursor = '';
+    }
 
     const banner = document.getElementById('mapPickerBanner');
     if (banner) {
       banner.hidden = true;
       banner.style.display = 'none';
+    }
+
+    if (this.map) {
+      this.map.invalidateSize();
+    }
+  }
+
+  cancelUserLocationPicker() {
+    const cancelCb = this.onUserLocationPickerCancel;
+    this.stopUserLocationPicker();
+    if (cancelCb) {
+      cancelCb();
     }
   }
 
